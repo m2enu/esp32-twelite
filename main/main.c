@@ -1,14 +1,26 @@
+/**
+ * Copyright (C) 2017 m2enu
+ *
+ * @file main/main.c
+ * @brief Bosch Sensortec BME280 Pressure sensor logger via TWE-LITE
+ * @author m2enu
+ * @date 2017/08/19
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "esp_system.h"
+#include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/uart.h"
-#include "freertos/queue.h"
-#include "esp_log.h"
 #include "soc/uart_struct.h"
+
+#include "twelite.h"
+
+static const char *TAG = "main"; //!< ESP_LOGx tag
 
 // defines {{{1
 #define UART_TXD_PIN    (4) //!< GPIO number of UART TXD
@@ -46,16 +58,22 @@ void uart_init(void)
  */
 static void uart_task(void *args)
 {
+    twelite_packet_t pkt;
     uint8_t* data = (uint8_t*) malloc(UART_BUF_SIZE);
-    int i;
     while(1) {
         // Read data from UART
-        int len = uart_read_bytes(UART_NUM, data, UART_BUF_SIZE, UART_TIMEOUT);
+        int32_t len = uart_read_bytes(UART_NUM, data,
+                                      UART_BUF_SIZE, UART_TIMEOUT);
         if (len <= 0) continue;
-        // print data
-        for (i=0; i<len; i++) {
-            printf("%c", data[i]);
+
+        // parse twe-lite packet
+        int8_t err = twelite_parse_packet(&pkt, (char*)data, len);
+        if (err < 0) {
+            ESP_LOGE(TAG, "TWE-LITE packet parse failed: %d", err);
+            continue;
         }
+        // print data
+        debug_twelite_print_packet(&pkt);
     }
 }
 
@@ -68,7 +86,7 @@ void app_main(void)
     // initialise peripherals
     uart_init();
     // create tasks
-    xTaskCreate(uart_task, "uart_echo_task", 1024, NULL, 10, NULL);
+    xTaskCreate(uart_task, "uart_echo_task", 4096, NULL, 10, NULL);
 }
 
 // end of file {{{1
