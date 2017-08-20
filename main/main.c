@@ -18,10 +18,12 @@
 #include "esp_wifi.h"
 #include "esp_event_loop.h"
 #include "nvs_flash.h"
-#include "driver/uart.h"
 #include "soc/uart_struct.h"
+#include "driver/uart.h"
+#include "driver/gpio.h"
 
 #include "twelite.h"
+#include "m2x.h"
 
 // global members {{{1
 static const char *TAG = "main"; //!< ESP_LOGx tag
@@ -44,6 +46,10 @@ static const int CONNECTED_BIT = BIT0;
 
 #define WIFI_SSID       CONFIG_WIFI_SSID //!< WiFi SSID
 #define WIFI_PASS       CONFIG_WIFI_PASSWORD //!< WiFi PASSWORD
+
+#define M2X_POST_PIN    (19) //!< GPIO number for switching M2X post
+#define M2X_ID          CONFIG_M2X_ID //!< AT&T M2X PRIMARY DEIVCE ID
+#define M2X_KEY         CONFIG_M2X_KEY //!< AT&T M2X PRIMARY API KEY
 
 /** <!-- event_handler {{{1 -->
  * @brief event handler
@@ -111,6 +117,27 @@ static void wifi_connect(void)
     ESP_LOGI(TAG_WIFI, "Connected to AP, freemem=%d", esp_get_free_heap_size());
 }
 
+/** <!-- create_json {{{1 -->
+ * @brief create json message from TWE-LITE packet
+ * @param[out] dst json string
+ * @param[in] pkt TWE-LITE app_tag packet structure
+ * @return nothing
+ */
+void create_json(char *dst, twelite_packet_t *pkt)
+{
+    const char *fmt = (
+        "{ \"values\": {"
+            "\"temperature\": %6.2f" ", "
+            "\"pressure\": %9.2f" ", "
+            "\"humidity\": %6.2f"
+        "} }"
+    );
+    sprintf(dst, fmt,
+            pkt->pkt_bme280.temperature,
+            pkt->pkt_bme280.pressure,
+            pkt->pkt_bme280.humidity);
+}
+
 /** <!-- uart_init {{{1 -->
  * @brief UART peripheral initialisation
  * @return nothing
@@ -139,6 +166,7 @@ static void uart_task(void *args)
 {
     twelite_packet_t pkt;
     uint8_t* data = (uint8_t*) malloc(UART_BUF_SIZE);
+    char json[256];
     while(1) {
         // Read data from UART
         int32_t len = uart_read_bytes(UART_NUM, data,
@@ -151,9 +179,25 @@ static void uart_task(void *args)
             ESP_LOGE(TAG, "TWE-LITE packet parse failed: %d", err);
             continue;
         }
-        // print data
-        debug_twelite_print_packet(&pkt);
+        // post to M2X
+        create_json(json, &pkt);
+        ESP_LOGI(TAG, "%s", json);
+        if (gpio_get_level(M2X_POST_PIN) == 0) {
+            ESP_LOGI(TAG, "M2X POST disable -> continue ...");
+            continue;
+        }
+        m2x_request(M2X_ID, M2X_KEY, json);
     }
+}
+
+/** <!-- gpio_init {{{1 -->
+ * @brief GPIO initialisation
+ * @param nothing
+ * @return nothing
+ */
+void gpio_init(void)
+{
+    gpio_set_direction(M2X_POST_PIN, GPIO_MODE_INPUT);
 }
 
 /** <!-- app_main {{{1 -->
@@ -164,6 +208,7 @@ void app_main(void)
 {
     // initialise peripherals
     nvs_flash_init();
+    gpio_init();
     uart_init();
     wifi_init();
     // connect to access point
