@@ -129,13 +129,15 @@ void create_json(char *dst, twelite_packet_t *pkt)
         "{ \"values\": {"
             "\"temperature\": %6.2f" ", "
             "\"pressure\": %9.2f" ", "
-            "\"humidity\": %6.2f"
+            "\"humidity\": %6.2f" ", "
+            "\"vdd\": %6.3f"
         "} }"
     );
     sprintf(dst, fmt,
             pkt->pkt_bme280.temperature,
             pkt->pkt_bme280.pressure,
-            pkt->pkt_bme280.humidity);
+            pkt->pkt_bme280.humidity,
+            (pkt->mvolt_vdd / 1000.0));
 }
 
 /** <!-- uart_init {{{1 -->
