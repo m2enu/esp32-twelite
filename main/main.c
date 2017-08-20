@@ -12,15 +12,25 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/event_groups.h"
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_wifi.h"
+#include "esp_event_loop.h"
 #include "nvs_flash.h"
 #include "driver/uart.h"
 #include "soc/uart_struct.h"
 
 #include "twelite.h"
 
+// global members {{{1
 static const char *TAG = "main"; //!< ESP_LOGx tag
+static const char *TAG_WIFI = "wifi"; //!< ESP_LOGx tag for WiFi
+static EventGroupHandle_t wifi_event_group; //!< FreeRTOS event group to signal when we are connected & ready to make a request
+/* The event group allows multiple bits for each event,
+   but we only care about one event - are we connected
+   to the AP with an IP? */
+static const int CONNECTED_BIT = BIT0;
 
 // defines {{{1
 #define UART_TXD_PIN    (4) //!< GPIO number of UART TXD
@@ -31,6 +41,75 @@ static const char *TAG = "main"; //!< ESP_LOGx tag
 #define UART_NUM        UART_NUM_1 //!< port number of UART
 #define UART_TIMEOUT    20 / portTICK_RATE_MS //!< UART TIMEOUT [ms]
 #define UART_BUF_SIZE   (1024) //!< UART receive buffer size
+
+#define WIFI_SSID       CONFIG_WIFI_SSID //!< WiFi SSID
+#define WIFI_PASS       CONFIG_WIFI_PASSWORD //!< WiFi PASSWORD
+
+/** <!-- event_handler {{{1 -->
+ * @brief event handler
+ * @param[in] ctx
+ * @param[in] event
+ * @return error code
+ */
+static esp_err_t event_handler(void *ctx, system_event_t *event)
+{
+    switch(event->event_id) {
+    case SYSTEM_EVENT_STA_START:
+        esp_wifi_connect();
+        break;
+    case SYSTEM_EVENT_STA_GOT_IP:
+        xEventGroupSetBits(wifi_event_group, CONNECTED_BIT);
+        break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        /* This is a workaround as ESP32 WiFi libs don't currently
+           auto-reassociate. */
+        esp_wifi_connect();
+        xEventGroupClearBits(wifi_event_group, CONNECTED_BIT);
+        break;
+    default:
+        break;
+    }
+    return ESP_OK;
+}
+
+/** <!-- wifi_init {{{1 -->
+ * @brief WiFi Initialisation
+ * @param[in] ssid WiFi SSID
+ * @param[in] pass WiFi PASSWORD
+ * @return nothing
+ */
+static void wifi_init(void)
+{
+    tcpip_adapter_init();
+    wifi_event_group = xEventGroupCreate();
+    ESP_ERROR_CHECK( esp_event_loop_init(event_handler, NULL) );
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
+    ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASS,
+        }
+    };
+    ESP_LOGI(TAG_WIFI,
+             "Setting WiFi configuration SSID %s...", wifi_config.sta.ssid);
+    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
+    ESP_ERROR_CHECK( esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config) );
+    ESP_ERROR_CHECK( esp_wifi_start() );
+}
+
+/** <!-- wifi_connect {{{1 -->
+ * @brief connect to access point
+ * @param nothing
+ * @return nothing
+ */
+static void wifi_connect(void)
+{
+    xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
+                        false, true, portMAX_DELAY);
+    ESP_LOGI(TAG_WIFI, "Connected to AP, freemem=%d", esp_get_free_heap_size());
+}
 
 /** <!-- uart_init {{{1 -->
  * @brief UART peripheral initialisation
@@ -84,7 +163,11 @@ static void uart_task(void *args)
 void app_main(void)
 {
     // initialise peripherals
+    nvs_flash_init();
     uart_init();
+    wifi_init();
+    // connect to access point
+    wifi_connect();
     // create tasks
     xTaskCreate(uart_task, "uart_echo_task", 4096, NULL, 10, NULL);
 }
