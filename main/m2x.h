@@ -25,15 +25,18 @@
 #define M2X_CONTENT     "application/json" //!< AT&T M2X Content-type
 #define M2X_STR_BUF     256 //!< AT&T M2X URL/KEY BUFFER SIZE
 
+#define STATUS_OK       202 //!< HTTP request complete successfully
+
 /** <!-- m2x_request {{{1 -->
  * @brief request to AT&T M2X
  * @param[in] device_id primary device id
  * @param[in] api_key primary api key
  * @param[in] json content
+ * @param[in] retry maximum retry number
  * @return result of HTTP request
  * @retval 202: OK
  */
-int32_t m2x_request(char *device_id, char *api_key, char *json);
+int32_t m2x_request(char *device_id, char *api_key, char *json, int32_t retry);
 
 // end of file {{{1
 // vim:ft=c:et:nowrap:fdm=marker
