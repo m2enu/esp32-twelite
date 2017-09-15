@@ -50,6 +50,7 @@ static const int CONNECTED_BIT = BIT0;
 #define M2X_POST_PIN    (19) //!< GPIO number for switching M2X post
 #define M2X_ID          CONFIG_M2X_ID //!< AT&T M2X PRIMARY DEIVCE ID
 #define M2X_KEY         CONFIG_M2X_KEY //!< AT&T M2X PRIMARY API KEY
+#define M2X_RETRY       10 //!< M2X POST retry number
 
 /** <!-- event_handler {{{1 -->
  * @brief event handler
@@ -188,7 +189,7 @@ static void uart_task(void *args)
             ESP_LOGI(TAG, "M2X POST disable -> continue ...");
             continue;
         }
-        m2x_request(M2X_ID, M2X_KEY, json);
+        m2x_request(M2X_ID, M2X_KEY, json, M2X_RETRY);
     }
 }
 
